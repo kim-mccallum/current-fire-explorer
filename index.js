@@ -306,7 +306,7 @@ require([
       
       // Mouse events
       
-      view.on("pointer-move", function(event){
+      view.on("click", function(event){
         // Get the graphic closest to the mouse pointer and buffer it     
         findNearestGraphic(event).then(function(graphic){
           if (graphic) {
