@@ -5,8 +5,10 @@ require([
     "esri/layers/FeatureLayer",
     "esri/widgets/Legend",
     "esri/widgets/Expand",
-    "esri/widgets/Search"
-  ], function(Map, MapView, BasemapToggle, FeatureLayer, Legend, Expand, Search) {
+    "esri/widgets/Search",
+    "esri/Graphic",
+    "esri/geometry/geometryEngine"
+  ], function(Map, MapView, BasemapToggle, FeatureLayer, Legend, Expand, Search, Graphic, geometryEngine) {
 
     //a few functions: 
     function showCoordinates(pt) {
@@ -219,5 +221,122 @@ require([
       view.ui.add(searchWidget, {
         position: "top-right"
       });
+
+      //Try to add geometry graphics
+      var activeGraphic;
+      var bufferGraphic;
+      var textGraphic;
+      var lineGraphic;
+      
+      function findNearestGraphic(event) {
+        return view.hitTest(event).then(function (response) {
+          var graphic, filteredResult;
+          // Get the firesLayer graphic
+          if (response.results.length) {
+            filteredResult = response.results.filter(function (result) {
+              return (result.graphic.layer === firesLayer);
+            })[0]; 
+          }
+          // Only return new graphics found
+          if (filteredResult) {
+            graphic = filteredResult.graphic;
+            if (!activeGraphic ||  (activeGraphic.attributes.OBJECTID !== graphic.attributes.OBJECTID)) {
+              return graphic;
+            } else {
+              return null;
+            } 
+          } else {
+            return null;
+          }
+        });
+      }
+      
+      function drawBuffer(bufferGeometry) {
+        view.graphics.remove(bufferGraphic);
+        bufferGraphic = new Graphic({
+          geometry: bufferGeometry,
+          symbol: {
+            type: "simple-fill",
+            color: "rgba(0,0,0,.15)",
+            outline: {
+              color: "rgba(0,0,0,.5)",
+              width: 1
+            }
+          }
+        });
+        view.graphics.add(bufferGraphic);
+      }
+      
+      function drawLine(point, point2) {
+        view.graphics.remove(lineGraphic);
+        lineGraphic = new Graphic({
+          geometry: {
+            type: "polyline",
+            paths: [
+              [point.longitude, point.latitude],
+              [point2.longitude, point2.latitude]
+            ]
+          },
+          symbol: {
+            type: "simple-line",
+            color: "#333",
+            width: 1
+          }
+        });
+        view.graphics.add(lineGraphic);
+      }
+      
+      function drawText(point, distance) {
+        view.graphics.remove(textGraphic);
+        textGraphic = new Graphic({
+          geometry: point,
+          symbol: {
+            type: "text",
+            text: distance.toFixed(2) + " miles",
+            color: "black",
+            font: {
+              size: 12
+            },
+            haloColor: "white",
+            haloSize: 1
+          }
+        })
+        view.graphics.add(textGraphic)
+      }
+      
+      // Mouse events
+      
+      view.on("pointer-move", function(event){
+        // Get the graphic closest to the mouse pointer and buffer it     
+        findNearestGraphic(event).then(function(graphic){
+          if (graphic) {
+            activeGraphic = graphic;
+            // Buffer geometry and draw polygon
+            var buffer = geometryEngine.geodesicBuffer(activeGraphic.geometry, .25, "miles");
+            drawBuffer(buffer);
+          }
+        });
+        // Perform intersect and distance calculations
+        if (bufferGraphic) {
+          // Change the color if the pointer intersects the buffer
+          var cursorPoint = view.toMap(event);
+          var intersects = geometryEngine.intersects(bufferGraphic.geometry, cursorPoint);
+          var symbol = bufferGraphic.symbol.clone();
+          if (intersects) {
+            symbol.color = "rgba(0,0,0,.15)";
+          } else {
+            symbol.color = "rgba(0,0,0,0)";
+          }
+          bufferGraphic.symbol = symbol;
+          // Get the closest vertex (point) in the buffer to the mouse location and draw a line
+          var vertexResult = geometryEngine.nearestVertex(bufferGraphic.geometry, cursorPoint);
+          var closestPoint = vertexResult.coordinate;
+          drawLine(cursorPoint, closestPoint)
+          // Get the distance and draw a text label
+          var distance = geometryEngine.geodesicLength(lineGraphic.geometry, "miles");
+          drawText(cursorPoint, distance);            
+        }      
+      });
+          
 
   });
